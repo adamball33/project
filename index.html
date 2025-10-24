@@ -5,9 +5,31 @@
 		<title>Planet Terraformation</title>
 		<style>
 			body { margin: 0; }
+			#buttons {
+				position: absolute;
+				top: 10px;
+				left: 10px;
+				z-index: 1;
+			}
+			button {
+				margin: 5px;
+				padding: 10px;
+				background-color: #333;
+				color: #fff;
+				border: none;
+				cursor: pointer;
+			}
+			button:hover {
+				background-color: #555;
+			}
 		</style>
 	</head>
 	<body>
+		<div id="buttons">
+			<button id="barren">Barren</button>
+			<button id="water">Water</button>
+			<button id="vegetation">Vegetation</button>
+		</div>
 		<script type="module" src="main.js"></script>
 	</body>
 </html>
