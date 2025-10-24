@@ -4,17 +4,8 @@ import { gsap } from 'https://cdn.skypack.dev/gsap';
 
 let scene, camera, renderer, controls, clock;
 let sphere, cloudLayer;
-let material, textures = {};
-let isTransitioning = false;
-
-// Pointing to your local 'textures' folder
-const stages = [
-    { id: 'barren', texture: 'textures/2k_mercury.jpg' },
-    { id: 'molten', texture: 'textures/2k_venus_surface.jpg' },
-    { id: 'water', texture: 'textures/2k_earth_daymap.jpg' },
-    { id: 'snow', texture: 'textures/2k_haumea_fictional.jpg' },
-    { id: 'vegetation', texture: 'textures/2k_earth_daymap.jpg' } // Using Earth for vegetation
-];
+let material;
+let simplex;
 
 const starfieldTexture = 'textures/2k_stars.jpg';
 const cloudTexture = 'textures/2k_earth_clouds.jpg';
@@ -30,6 +21,9 @@ function init() {
     // Controls
     controls = new OrbitControls(camera, renderer.domElement);
     clock = new THREE.Clock();
+
+    // Noise
+    simplex = new SimplexNoise();
 
     // Lighting
     const ambientLight = new THREE.AmbientLight(0xffffff, 0.5);
@@ -55,34 +49,71 @@ function init() {
 }
 
 function createPlanet() {
-    const geometry = new THREE.SphereGeometry(1, 32, 32);
-    const textureLoader = new THREE.TextureLoader();
-    stages.forEach(stage => {
-        textures[stage.id] = textureLoader.load(stage.texture);
-    });
+    if (sphere) {
+        scene.remove(sphere);
+        sphere.geometry.dispose();
+        material.dispose();
+    }
+
+    const geometry = new THREE.SphereGeometry(1, 128, 128);
+    const position = geometry.attributes.position;
+    const elevations = [];
+
+    const noiseSettings = [
+        { frequency: 2.0, strength: 0.05 }, // Continents
+        { frequency: 8.0, strength: 0.02 }, // Mountains
+        { frequency: 16.0, strength: 0.005 } // Details
+    ];
+
+    for (let i = 0; i < position.count; i++) {
+        const vertex = new THREE.Vector3().fromBufferAttribute(position, i);
+        let elevation = 0;
+        noiseSettings.forEach(noise => {
+            elevation += simplex.noise3D(vertex.x * noise.frequency, vertex.y * noise.frequency, vertex.z * noise.frequency) * noise.strength;
+        });
+
+        vertex.normalize().multiplyScalar(1 + elevation);
+        position.setXYZ(i, vertex.x, vertex.y, vertex.z);
+        elevations.push(elevation);
+    }
+
+    geometry.setAttribute('elevation', new THREE.Float32BufferAttribute(elevations, 1));
+    geometry.computeVertexNormals();
 
     material = new THREE.ShaderMaterial({
         uniforms: {
-            texture1: { value: textures.barren },
-            texture2: { value: textures.barren },
-            mixValue: { value: 0.0 }
+            terraformProgress: { value: 0.0 }
         },
         vertexShader: `
-            varying vec2 vUv;
+            attribute float elevation;
+            varying float vElevation;
             void main() {
-                vUv = uv;
+                vElevation = elevation;
                 gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
             }
         `,
         fragmentShader: `
-            uniform sampler2D texture1;
-            uniform sampler2D texture2;
-            uniform float mixValue;
-            varying vec2 vUv;
+            varying float vElevation;
+            uniform float terraformProgress;
+
+            // Simple color gradient functions
+            vec3 barrenColor(float e) {
+                return mix(vec3(0.5, 0.4, 0.3), vec3(0.8, 0.7, 0.6), e * 10.0 + 0.5);
+            }
+
+            vec3 terraformedColor(float e) {
+                if (e < -0.02) return vec3(0.1, 0.2, 0.5); // Deep Water
+                if (e < 0.0) return vec3(0.2, 0.4, 0.8); // Shallow Water
+                if (e < 0.01) return vec3(0.9, 0.8, 0.6); // Beach
+                if (e < 0.05) return vec3(0.2, 0.5, 0.2); // Grass
+                if (e < 0.1) return vec3(0.5, 0.5, 0.5); // Rock
+                return vec3(1.0, 1.0, 1.0); // Snow
+            }
+
             void main() {
-                vec4 tex1 = texture2D(texture1, vUv);
-                vec4 tex2 = texture2D(texture2, vUv);
-                gl_FragColor = mix(tex1, tex2, mixValue);
+                vec3 barren = barrenColor(vElevation);
+                vec3 terraformed = terraformedColor(vElevation);
+                gl_FragColor = vec4(mix(barren, terraformed, terraformProgress), 1.0);
             }
         `
     });
@@ -91,47 +122,15 @@ function createPlanet() {
 }
 
 function setupEventListeners() {
-    stages.forEach(stage => {
-        document.getElementById(stage.id).addEventListener('click', () => transitionToTexture(textures[stage.id]));
-    });
+    document.getElementById('generate').addEventListener('click', createPlanet);
     document.getElementById('terraform').addEventListener('click', terraform);
 }
 
-function transitionToTexture(newTexture, onComplete) {
-    if (isTransitioning) {
-        return;
-    }
-    isTransitioning = true;
-
-    material.uniforms.texture2.value = newTexture;
-    gsap.to(material.uniforms.mixValue, {
-        value: 1.0,
-        duration: 1.5,
-        onComplete: () => {
-            material.uniforms.texture1.value = newTexture;
-            material.uniforms.mixValue.value = 0.0;
-            isTransitioning = false;
-            if (onComplete) {
-                onComplete();
-            }
-        }
-    });
-}
-
 function terraform() {
-    if (isTransitioning) {
-        return;
-    }
-    const terraformStages = ['molten', 'water', 'vegetation'];
-    const tl = gsap.timeline();
-
-    terraformStages.forEach(stage => {
-        tl.to({}, { // Empty tween to create a delay
-            duration: 0.5, // Delay between transitions
-            onComplete: () => {
-                transitionToTexture(textures[stage]);
-            }
-        });
+    gsap.to(material.uniforms.terraformProgress, {
+        value: 1.0,
+        duration: 5.0,
+        ease: "power1.inOut"
     });
 }
 
