@@ -61,9 +61,30 @@ function createPlanet() {
         textures[stage.id] = textureLoader.load(stage.texture);
     });
 
-    material = new THREE.MeshBasicMaterial({
-        map: textures.barren,
-        transparent: true
+    material = new THREE.ShaderMaterial({
+        uniforms: {
+            texture1: { value: textures.barren },
+            texture2: { value: textures.barren },
+            mixValue: { value: 0.0 }
+        },
+        vertexShader: `
+            varying vec2 vUv;
+            void main() {
+                vUv = uv;
+                gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+            }
+        `,
+        fragmentShader: `
+            uniform sampler2D texture1;
+            uniform sampler2D texture2;
+            uniform float mixValue;
+            varying vec2 vUv;
+            void main() {
+                vec4 tex1 = texture2D(texture1, vUv);
+                vec4 tex2 = texture2D(texture2, vUv);
+                gl_FragColor = mix(tex1, tex2, mixValue);
+            }
+        `
     });
     sphere = new THREE.Mesh(geometry, material);
     scene.add(sphere);
@@ -73,34 +94,44 @@ function setupEventListeners() {
     stages.forEach(stage => {
         document.getElementById(stage.id).addEventListener('click', () => transitionToTexture(textures[stage.id]));
     });
+    document.getElementById('terraform').addEventListener('click', terraform);
 }
 
-function transitionToTexture(newTexture) {
-    if (isTransitioning || material.map === newTexture) {
+function transitionToTexture(newTexture, onComplete) {
+    if (isTransitioning) {
         return;
     }
     isTransitioning = true;
 
-    const tempMaterial = new THREE.MeshBasicMaterial({
-        map: newTexture,
-        transparent: true,
-        opacity: 0
-    });
-
-    sphere.geometry.addGroup(0, Infinity, 0);
-    sphere.geometry.addGroup(0, Infinity, 1);
-    sphere.material = [material, tempMaterial];
-
-    gsap.to(tempMaterial, {
-        opacity: 1,
+    material.uniforms.texture2.value = newTexture;
+    gsap.to(material.uniforms.mixValue, {
+        value: 1.0,
         duration: 1.5,
         onComplete: () => {
-            material.map = newTexture;
-            sphere.material = material;
-            sphere.geometry.clearGroups();
-            tempMaterial.dispose();
+            material.uniforms.texture1.value = newTexture;
+            material.uniforms.mixValue.value = 0.0;
             isTransitioning = false;
+            if (onComplete) {
+                onComplete();
+            }
         }
+    });
+}
+
+function terraform() {
+    if (isTransitioning) {
+        return;
+    }
+    const terraformStages = ['molten', 'water', 'vegetation'];
+    const tl = gsap.timeline();
+
+    terraformStages.forEach(stage => {
+        tl.to({}, { // Empty tween to create a delay
+            duration: 0.5, // Delay between transitions
+            onComplete: () => {
+                transitionToTexture(textures[stage]);
+            }
+        });
     });
 }
 
