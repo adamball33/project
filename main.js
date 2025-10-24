@@ -1,8 +1,23 @@
 import * as THREE from 'https://cdn.skypack.dev/three@0.132.2';
 import { OrbitControls } from 'https://cdn.skypack.dev/three@0.132.2/examples/jsm/controls/OrbitControls.js';
+import { gsap } from 'https://cdn.skypack.dev/gsap';
 
 let scene, camera, renderer, controls, clock;
 let sphere, cloudLayer;
+let material, textures = {};
+let isTransitioning = false;
+
+// Pointing to your local 'textures' folder
+const stages = [
+    { id: 'barren', texture: 'textures/2k_mercury.jpg' },
+    { id: 'molten', texture: 'textures/2k_venus_surface.jpg' },
+    { id: 'water', texture: 'textures/2k_earth_daymap.jpg' },
+    { id: 'snow', texture: 'textures/2k_haumea_fictional.jpg' },
+    { id: 'vegetation', texture: 'textures/2k_earth_daymap.jpg' } // Using Earth for vegetation
+];
+
+const starfieldTexture = 'textures/2k_stars.jpg';
+const cloudTexture = 'textures/2k_earth_clouds.jpg';
 
 function init() {
     // Scene setup
@@ -17,7 +32,7 @@ function init() {
     clock = new THREE.Clock();
 
     // Lighting
-    const ambientLight = new THREE.AmbientLight(0xffffff, 0.2);
+    const ambientLight = new THREE.AmbientLight(0xffffff, 0.5);
     scene.add(ambientLight);
     const directionalLight = new THREE.DirectionalLight(0xffffff, 1);
     directionalLight.position.set(1, 1, 1);
@@ -42,31 +57,57 @@ function init() {
 function createPlanet() {
     const geometry = new THREE.SphereGeometry(1, 32, 32);
     const textureLoader = new THREE.TextureLoader();
-    const textures = {
-        barren: textureLoader.load('barren.png'),
-        water: textureLoader.load('water.png'),
-        vegetation: textureLoader.load('vegetation.png')
-    };
-    const material = new THREE.MeshStandardMaterial({ map: textures.barren });
+    stages.forEach(stage => {
+        textures[stage.id] = textureLoader.load(stage.texture);
+    });
+
+    material = new THREE.MeshBasicMaterial({
+        map: textures.barren,
+        transparent: true
+    });
     sphere = new THREE.Mesh(geometry, material);
     scene.add(sphere);
+}
 
-    // Button listeners for texture swapping
-    document.getElementById('barren').addEventListener('click', () => {
-        material.map = textures.barren;
+function setupEventListeners() {
+    stages.forEach(stage => {
+        document.getElementById(stage.id).addEventListener('click', () => transitionToTexture(textures[stage.id]));
     });
-    document.getElementById('water').addEventListener('click', () => {
-        material.map = textures.water;
+}
+
+function transitionToTexture(newTexture) {
+    if (isTransitioning || material.map === newTexture) {
+        return;
+    }
+    isTransitioning = true;
+
+    const tempMaterial = new THREE.MeshBasicMaterial({
+        map: newTexture,
+        transparent: true,
+        opacity: 0
     });
-    document.getElementById('vegetation').addEventListener('click', () => {
-        material.map = textures.vegetation;
+
+    sphere.geometry.addGroup(0, Infinity, 0);
+    sphere.geometry.addGroup(0, Infinity, 1);
+    sphere.material = [material, tempMaterial];
+
+    gsap.to(tempMaterial, {
+        opacity: 1,
+        duration: 1.5,
+        onComplete: () => {
+            material.map = newTexture;
+            sphere.material = material;
+            sphere.geometry.clearGroups();
+            tempMaterial.dispose();
+            isTransitioning = false;
+        }
     });
 }
 
 function createStarfield() {
     const starGeometry = new THREE.SphereGeometry(100, 64, 64);
     const starMaterial = new THREE.MeshBasicMaterial({
-        map: new THREE.TextureLoader().load('https://i.imgur.com/v631mN5.png'),
+        map: new THREE.TextureLoader().load(starfieldTexture),
         side: THREE.BackSide
     });
     const starField = new THREE.Mesh(starGeometry, starMaterial);
@@ -76,16 +117,12 @@ function createStarfield() {
 function createClouds() {
     const cloudGeometry = new THREE.SphereGeometry(1.01, 32, 32);
     const cloudMaterial = new THREE.MeshPhongMaterial({
-        map: new THREE.TextureLoader().load('https://i.imgur.com/W4i25X0.png'),
+        map: new THREE.TextureLoader().load(cloudTexture),
         transparent: true,
         opacity: 0.8
     });
     cloudLayer = new THREE.Mesh(cloudGeometry, cloudMaterial);
     scene.add(cloudLayer);
-}
-
-function setupEventListeners() {
-    // Event listeners for terraforming buttons are in createPlanet()
 }
 
 function onWindowResize() {
@@ -98,7 +135,6 @@ function animate() {
     requestAnimationFrame(animate);
 
     const delta = clock.getDelta();
-    // Rotate planet and clouds at different speeds
     sphere.rotation.y += (Math.PI / 30) * delta;
     cloudLayer.rotation.y += (Math.PI / 25) * delta;
 
