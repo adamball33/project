@@ -19,8 +19,18 @@ const elevation = new Float32Array(positionAttribute.count);
 
 for (let i = 0; i < positionAttribute.count; i++) {
     const vertex = new THREE.Vector3().fromBufferAttribute(positionAttribute, i);
-    const noiseVal = (noise(vertex.x * 2, vertex.y * 2, vertex.z * 2) + 1) * 0.5;
-    const elevationVal = noiseVal * 0.2;
+
+    // Layer 1: Continents
+    const continentNoise = (noise(vertex.x * 0.5, vertex.y * 0.5, vertex.z * 0.5) + 1) * 0.5;
+
+    // Layer 2: Mountains and Valleys
+    const mountainNoise = (noise(vertex.x * 4, vertex.y * 4, vertex.z * 4) + 1) * 0.5;
+
+    // Layer 3: Fine Details
+    const detailNoise = (noise(vertex.x * 16, vertex.y * 16, vertex.z * 16) + 1) * 0.5;
+
+    const elevationVal = continentNoise * 0.2 + mountainNoise * 0.05 + detailNoise * 0.01;
+
     vertex.addScaledVector(vertex.clone().normalize(), elevationVal);
     positionAttribute.setXYZ(i, vertex.x, vertex.y, vertex.z);
     elevation[i] = elevationVal;
@@ -99,6 +109,17 @@ const atmosphereMaterial = new THREE.ShaderMaterial({
 const atmosphere = new THREE.Mesh(atmosphereGeometry, atmosphereMaterial);
 scene.add(atmosphere);
 
+const cloudGeometry = new THREE.SphereGeometry(1.05, 128, 128);
+const cloudTexture = new THREE.TextureLoader().load('https://i.imgur.com/8i36q27.png');
+const cloudMaterial = new THREE.MeshStandardMaterial({
+    map: cloudTexture,
+    transparent: true,
+    opacity: 0.5,
+    blending: THREE.AdditiveBlending
+});
+const clouds = new THREE.Mesh(cloudGeometry, cloudMaterial);
+scene.add(clouds);
+
 const ambientLight = new THREE.AmbientLight( 0xffffff, 0.2 );
 scene.add( ambientLight );
 
@@ -124,6 +145,7 @@ function animate() {
 
     const delta = clock.getDelta();
     sphere.rotation.y += (Math.PI / 30) * delta;
+    clouds.rotation.y += (Math.PI / 20) * delta;
 
     controls.update();
 
