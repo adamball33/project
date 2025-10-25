@@ -6,8 +6,13 @@ import { gsap } from 'https://cdn.skypack.dev/gsap';
 const scene = new THREE.Scene();
 const camera = new THREE.PerspectiveCamera( 75, window.innerWidth / window.innerHeight, 0.1, 1000 );
 
-const renderer = new THREE.WebGLRenderer();
+const textureLoader = new THREE.TextureLoader();
+const starTexture = textureLoader.load('https://i.imgur.com/p36i94k.jpeg');
+scene.background = starTexture;
+
+const renderer = new THREE.WebGLRenderer({ antialias: true });
 renderer.setSize( window.innerWidth, window.innerHeight );
+renderer.shadowMap.enabled = true;
 document.body.appendChild( renderer.domElement );
 
 const controls = new OrbitControls( camera, renderer.domElement );
@@ -40,19 +45,29 @@ geometry.setAttribute('elevation', new THREE.BufferAttribute(elevation, 1));
 
 const material = new THREE.ShaderMaterial({
     uniforms: {
-        terraformProgress: { value: 0.0 }
+        terraformProgress: { value: 0.0 },
+        sunPosition: { value: new THREE.Vector3(5, 3, 5) },
+        cameraPosition: { value: camera.position },
     },
     vertexShader: `
         varying float vElevation;
         attribute float elevation;
+        varying vec3 vNormal;
+        varying vec3 vPosition;
         void main() {
             vElevation = elevation;
+            vNormal = normalize(normalMatrix * normal);
+            vec4 worldPosition = modelMatrix * vec4(position, 1.0);
+            vPosition = worldPosition.xyz;
             gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
         }
     `,
     fragmentShader: `
         varying float vElevation;
         uniform float terraformProgress;
+        uniform vec3 sunPosition;
+        varying vec3 vNormal;
+        varying vec3 vPosition;
         void main() {
             // Barren planet colors
             vec3 barrenDeepColor = vec3(0.2, 0.1, 0.0);
@@ -80,11 +95,22 @@ const material = new THREE.ShaderMaterial({
             } else {
                 color = mix(shallowColor, peakColor, smoothstep(0.15, 0.2, vElevation));
             }
+
+            if (terraformProgress > 0.5 && vElevation < 0.05) {
+                vec3 viewDir = normalize(cameraPosition - vPosition);
+                vec3 lightDir = normalize(sunPosition - vPosition);
+                vec3 halfwayDir = normalize(lightDir + viewDir);
+                float spec = pow(max(dot(vNormal, halfwayDir), 0.0), 32.0);
+                color += vec3(1.0) * spec * 0.5;
+            }
+
             gl_FragColor = vec4(color, 1.0);
         }
     `
 });
 const sphere = new THREE.Mesh(geometry, material);
+sphere.castShadow = true;
+sphere.receiveShadow = true;
 scene.add(sphere);
 
 const atmosphereGeometry = new THREE.SphereGeometry(1.1, 128, 128);
@@ -118,14 +144,13 @@ const cloudMaterial = new THREE.MeshStandardMaterial({
     blending: THREE.AdditiveBlending
 });
 const clouds = new THREE.Mesh(cloudGeometry, cloudMaterial);
+clouds.castShadow = true;
 scene.add(clouds);
 
-const ambientLight = new THREE.AmbientLight( 0xffffff, 0.2 );
-scene.add( ambientLight );
-
-const directionalLight = new THREE.DirectionalLight( 0xffffff, 1 );
-directionalLight.position.set( 1, 1, 1 );
-scene.add( directionalLight );
+const sun = new THREE.PointLight(0xffffff, 1, 0, 2);
+sun.position.set(5, 3, 5);
+sun.castShadow = true;
+scene.add(sun);
 
 const terraformButton = document.getElementById('terraform-button');
 terraformButton.addEventListener('click', () => {
