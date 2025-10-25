@@ -41,6 +41,7 @@ for (let i = 0; i < positionAttribute.count; i++) {
     elevation[i] = elevationVal;
 }
 
+geometry.computeVertexNormals();
 geometry.setAttribute('elevation', new THREE.BufferAttribute(elevation, 1));
 
 const material = new THREE.ShaderMaterial({
@@ -157,15 +158,20 @@ const material = new THREE.ShaderMaterial({
                 color = mix(shallowColor, peakColor, smoothstep(0.15, 0.2, vElevation));
             }
 
+            vec3 lightDir = normalize(sunPosition - vPosition);
+            float diffuse = max(dot(vNormal, lightDir), 0.0);
+
+            vec3 ambient = vec3(0.1); // Ambient light
+            vec3 finalColor = color * (diffuse + ambient);
+
             if (terraformProgress > 0.5 && vElevation < 0.05) {
                 vec3 viewDir = normalize(cameraPosition - vPosition);
-                vec3 lightDir = normalize(sunPosition - vPosition);
                 vec3 halfwayDir = normalize(lightDir + viewDir);
                 float spec = pow(max(dot(vNormal, halfwayDir), 0.0), 32.0);
-                color += vec3(1.0) * spec * 0.5;
+                finalColor += vec3(1.0) * spec * 0.5;
             }
 
-            gl_FragColor = vec4(color, 1.0);
+            gl_FragColor = vec4(finalColor, 1.0);
         }
     `
 });
